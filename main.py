@@ -1,32 +1,83 @@
 import asyncio
-from typing import List, Dict
+from typing import List, Dict, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
 app = FastAPI(title="Sniper Roulette Engine - Auto")
 
 # ==========================================
-# 1. REGRAS AVANÇADAS (Puxadas e Terminais)
+# 1. ORDEM OFICIAL DA RACETRACK EUROPEIA
+# ==========================================
+RACETRACK_EUROPEIA = [
+    0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10,
+    5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26
+]
+
+# Pega o número alvo + 3 vizinhos no sentido horário e 3 no anti-horário
+def obter_vizinhos_racetrack(numero: int, raio: int = 3) -> List[int]:
+    if numero not in RACETRACK_EUROPEIA:
+        return []
+    
+    idx = RACETRACK_EUROPEIA.index(numero)
+    tamanho = len(RACETRACK_EUROPEIA)
+    vizinhos = []
+    
+    for i in range(-raio, raio + 1):
+        novo_idx = (idx + i) % tamanho
+        vizinhos.append(RACETRACK_EUROPEIA[novo_idx])
+        
+    return vizinhos
+
+# ==========================================
+# 2. MATRIZ DE ESTRATÉGIAS PERSONALIZADA
 # ==========================================
 MATRIZ_PUXADAS: Dict[int, List[int]] = {
-    0:  [26, 32, 15, 19], 1:  [20, 14, 31, 9],  2:  [21, 25, 17, 34],
-    3:  [26, 35, 12, 0],  4:  [15, 19, 21, 2],  5:  [10, 23, 24, 16],
-    6:  [27, 13, 36, 11], 7:  [18, 29, 28, 12], 8:  [11, 30, 23, 10],
-    9:  [31, 14, 1, 20],  10: [12, 35, 3, 26],  11: [36, 13, 30, 8],
-    12: [35, 3, 26, 0],   13: [27, 6, 36, 11],  14: [1, 20, 31, 9],
-    15: [19, 4, 21, 2],   16: [24, 5, 10, 23],  17: [25, 2, 21, 34],
-    18: [29, 7, 28, 12],  19: [15, 4, 21, 2],   20: [1, 14, 31, 9],
-    21: [2, 25, 17, 34],  22: [9, 18, 29, 31],  23: [10, 5, 24, 16],
-    24: [16, 5, 10, 23],  25: [17, 2, 21, 34],  26: [0, 32, 15, 3],
-    27: [6, 13, 36, 11],  28: [12, 18, 29, 7],  29: [18, 7, 28, 12],
-    30: [8, 11, 36, 13],  31: [9, 14, 1, 20],   32: [0, 26, 15, 19],
-    33: [16, 24, 5, 10],  34: [17, 25, 2, 21],  35: [3, 12, 26, 0],
-    36: [11, 13, 27, 6]
+    0:  [20, 30, 10],
+    1:  [17, 7, 20],
+    2:  [2, 22, 20],
+    3:  [3, 33, 15],
+    4:  [21, 9, 19],
+    5:  [25, 15, 35],
+    6:  [20, 17, 7],
+    7:  [7, 17, 20],
+    8:  [30, 0, 20],
+    9:  [9, 19, 31],
+    10: [0, 20, 30],
+    11: [30, 0, 20],
+    12: [33, 15, 35],
+    13: [20, 7, 17],
+    14: [17, 7, 20],
+    15: [9, 5, 35],
+    16: [3, 33, 15],
+    17: [17, 20, 7],
+    18: [2, 22, 20],
+    19: [19, 9, 31],
+    20: [17, 7, 20],
+    21: [2, 22, 20],
+    22: [2, 22, 20],
+    23: [0, 10, 30],
+    24: [35, 15, 25],
+    25: [20, 22, 2],
+    26: [0, 10, 30],
+    27: [17, 7, 20],
+    28: [7, 17, 20],
+    29: [7, 17, 20],
+    30: [0, 20, 30],
+    31: [9, 19, 31],
+    32: [0, 10, 20],
+    33: [3, 33, 15],
+    34: [7, 20, 17],
+    35: [3, 33, 15],
+    36: [20, 30, 0]
 }
 
 historico_rodadas: List[int] = []
 placar = {"greens": 0, "reds": 0}
+ultimos_alvos_cobertura: Set[int] = set()
 
+# ==========================================
+# 3. WEBSOCKET MANAGER
+# ==========================================
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -45,26 +96,15 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# Detecta repetição de finais (Terminais)
-def analisar_terminais(historico: List[int]) -> List[int]:
-    if len(historico) < 2:
-        return []
-    
-    ultimo = historico[0]
-    penultimo = historico[1]
-    
-    final_ultimo = ultimo % 10
-    final_penultimo = penultimo % 10
-    
-    # Se os dois últimos tiverem o mesmo final, sugere a família do terminal
-    if final_ultimo == final_penultimo:
-        return [f for f in range(37) if f % 10 == final_ultimo and f not in [ultimo, penultimo]]
-    return []
-
+# ==========================================
+# 4. PROCESSADOR DE SINAL E VALIDAÇÃO DE VIZINHOS
+# ==========================================
 def processar_numero(numero: int) -> dict:
-    sugestoes_anteriores = MATRIZ_PUXADAS.get(historico_rodadas[0], []) if historico_rodadas else []
-    if sugestoes_anteriores:
-        if numero in sugestoes_anteriores:
+    global ultimos_alvos_cobertura
+    
+    # 1. VALIDAÇÃO DO GREEN / RED (Verifica se o novo número bateu nos vizinhos)
+    if ultimos_alvos_cobertura:
+        if numero in ultimos_alvos_cobertura:
             placar["greens"] += 1
         else:
             placar["reds"] += 1
@@ -73,31 +113,31 @@ def processar_numero(numero: int) -> dict:
     if len(historico_rodadas) > 20:
         historico_rodadas.pop()
 
-    # Combina Puxadas + Terminais
-    puxadas = MATRIZ_PUXADAS.get(numero, [])
-    terminais = analisar_terminais(historico_rodadas)
+    # 2. CALCULA OS NOVO SINAIS E A COBERTURA DE 3 VIZINHOS PARA CADA ALVO
+    alvos_principais = MATRIZ_PUXADAS.get(numero, [])
+    cobertura_total: Set[int] = set()
     
-    alvos_unicos = list(set(puxadas + terminais))
-    
-    padrao_detectado = "NENHUM"
-    if terminais and puxadas:
-        padrao_detectado = "PUXADA + TERMINAL REPETIDOR"
-    elif terminais:
-        padrao_detectado = "TERMINAL REPETIDOR"
-    elif puxadas:
-        padrao_detectado = "NÚMERO PUXA NÚMERO"
+    for alvo in alvos_principais:
+        vizinhos = obter_vizinhos_racetrack(alvo, raio=3)
+        cobertura_total.update(vizinhos)
+
+    # Guarda a cobertura total para validar a próxima rodada
+    ultimos_alvos_cobertura = cobertura_total.copy()
 
     return {
         "tipo": "NOVA_RODADA",
         "ultimo_numero": numero,
         "historico": historico_rodadas,
-        "alerta": len(alvos_unicos) > 0,
-        "sugestoes": alvos_unicos,
-        "padrao": padrao_detectado,
-        "mensagem": f"ALVOS: {alvos_unicos}",
+        "alerta": len(alvos_principais) > 0,
+        "alvos_principais": alvos_principais,
+        "sugestoes": list(cobertura_total),
+        "mensagem": f"JOGAR NOS ALVOS {alvos_principais} + 3 VIZINHOS",
         "placar": placar
     }
 
+# ==========================================
+# 5. FRONTEND DASHBOARD
+# ==========================================
 HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -134,8 +174,9 @@ HTML_CONTENT = """
         .hist-item { min-width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; }
 
         .racetrack-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; background: #0d0f12; padding: 8px; border-radius: 8px; border: 1px solid #292d3e; }
-        .race-cell { padding: 8px 0; text-align: center; font-size: 11px; font-weight: bold; border-radius: 4px; opacity: 0.4; }
-        .race-cell.active-target { opacity: 1 !important; transform: scale(1.15); border: 2px solid #ffd700; box-shadow: 0 0 10px #ffd700; z-index: 2; }
+        .race-cell { padding: 8px 0; text-align: center; font-size: 11px; font-weight: bold; border-radius: 4px; opacity: 0.25; transition: all 0.3s; }
+        .race-cell.active-target { opacity: 1 !important; transform: scale(1.1); border: 2px solid #ffd700; box-shadow: 0 0 8px #ffd700; z-index: 2; }
+        .race-cell.main-target { opacity: 1 !important; transform: scale(1.2); border: 2px solid #00ff88; box-shadow: 0 0 10px #00ff88; z-index: 3; }
     </style>
 </head>
 <body>
@@ -156,17 +197,17 @@ HTML_CONTENT = """
     </div>
 
     <div id="alert-box" class="pulse">
-        <h3 style="color: #ffd700; font-size: 15px;" id="padrao-txt">🎯 SINAL CONFIRMADO</h3>
-        <p id="msg-sniper" style="font-size: 14px; font-weight: bold; margin-top: 5px;"></p>
+        <h3 style="color: #ffd700; font-size: 15px;">🎯 SINAL CONFIRMADO (3 VIZINHOS)</h3>
+        <p id="msg-sniper" style="font-size: 14px; font-weight: bold; margin-top: 5px; color: #fff;"></p>
     </div>
 
     <div class="header-card">
-        <div class="section-title">Histórico de Leitura ao Vivo</div>
+        <div class="section-title">Últimos Resultados</div>
         <div class="history" id="history"></div>
     </div>
 
     <div class="header-card">
-        <div class="section-title">Alvos Mapeados na Roleta</div>
+        <div class="section-title">Racetrack (Alvos + Vizinhos)</div>
         <div class="racetrack-grid" id="racetrack"></div>
     </div>
 </div>
@@ -188,7 +229,7 @@ HTML_CONTENT = """
 
     socket.onopen = () => {
         const st = document.getElementById('status');
-        st.innerText = "MONITORANDO EM TEMPO REAL";
+        st.innerText = "SISTEMA ONLINE - MONITORE DE PRONTIDÃO";
         st.classList.add('online');
     };
 
@@ -205,17 +246,29 @@ HTML_CONTENT = """
                 document.getElementById('reds-cnt').innerText = data.placar.reds;
             }
 
-            document.querySelectorAll('.race-cell').forEach(c => c.classList.remove('active-target'));
+            document.querySelectorAll('.race-cell').forEach(c => {
+                c.classList.remove('active-target');
+                c.classList.remove('main-target');
+            });
 
             const alertBox = document.getElementById('alert-box');
             if (data.alerta) {
                 alertBox.style.display = "block";
-                document.getElementById('padrao-txt').innerText = `🎯 PADRÃO: ${data.padrao}`;
                 document.getElementById('msg-sniper').innerText = data.mensagem;
+                
+                // Marca a cobertura total (Vizinhos em Amarelo)
                 data.sugestoes.forEach(num => {
                     const targetCell = document.getElementById(`race-${num}`);
                     if (targetCell) targetCell.classList.add('active-target');
                 });
+
+                // Destaque Verde nos Alvos Principais
+                if (data.alvos_principais) {
+                    data.alvos_principais.forEach(num => {
+                        const mainCell = document.getElementById(`race-${num}`);
+                        if (mainCell) mainCell.classList.add('main-target');
+                    });
+                }
             } else {
                 alertBox.style.display = "none";
             }
@@ -238,3 +291,32 @@ HTML_CONTENT = """
 </script>
 </body>
 </html>
+"""
+
+# ==========================================
+# 6. ROTAS DE API
+# ==========================================
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return HTML_CONTENT
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    await websocket.send_json({
+        "tipo": "INIT",
+        "historico": historico_rodadas
+    })
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+@app.post("/injetar-numero/{numero}")
+async def injetar_numero(numero: int):
+    if 0 <= numero <= 36:
+        dados_analise = processar_numero(numero)
+        await manager.broadcast(dados_analise)
+        return {"status": "sucesso", "dados": dados_analise}
+    return {"status": "erro", "mensagem": "Número inválido"}
