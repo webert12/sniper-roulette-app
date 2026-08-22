@@ -1,9 +1,19 @@
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from typing import List, Dict
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="Sniper Roulette Engine")
 
+# ==========================================
+# CONFIGURAÇÃO DE TEMPLATES (HTML)
+# ==========================================
+templates = Jinja2Templates(directory="templates")
+
+# ==========================================
+# 1. MATRIZ DE ESTRATÉGIAS ("Puxadas")
+# ==========================================
 MATRIZ_PUXADAS: Dict[int, List[int]] = {
     10: [12, 35, 3, 26],
     20: [1, 14, 31, 9],
@@ -13,6 +23,9 @@ MATRIZ_PUXADAS: Dict[int, List[int]] = {
 
 historico_rodadas: List[int] = []
 
+# ==========================================
+# 2. GERENCIADOR DE WEBSOCKETS (Tempo Real)
+# ==========================================
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -31,6 +44,9 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# ==========================================
+# 3. MOTOR DE ANÁLISE DE SINAIS
+# ==========================================
 def processar_numero(numero: int) -> dict:
     historico_rodadas.insert(0, numero)
     if len(historico_rodadas) > 20:
@@ -47,6 +63,16 @@ def processar_numero(numero: int) -> dict:
         "mensagem": f"ENTRADA SNIPER: Apostar nos números {sugestoes}" if sugestoes else "Aguardando sinal..."
     }
 
+# ==========================================
+# 4. ROTAS DO SERVIDOR
+# ==========================================
+
+# Rota para a página principal (carrega a tela do Dashboard)
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+# Rota do WebSocket para enviar dados ao vivo
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
@@ -60,6 +86,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+# Endpoint para injetar novos números (Manual ou via Bot Coletor)
 @app.post("/injetar-numero/{numero}")
 async def injetar_numero(numero: int):
     if 0 <= numero <= 36:
