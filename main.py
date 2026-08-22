@@ -1,6 +1,6 @@
 import asyncio
 from typing import List, Dict, Set
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import HTMLResponse
 
 app = FastAPI(title="Sniper Roulette Engine - Auto Dynamic Strategy")
@@ -159,198 +159,20 @@ def processar_numero(numero: int) -> dict:
     }
 
 # ==========================================
-# 4. DASHBOARD FRONTEND HTML
+# 4. DASHBOARD FRONTEND HTML (Injetado via App)
 # ==========================================
-HTML_CONTENT = """
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Immersive Sniper Auto - Dynamic Engine</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background-color: #0d0f12; color: #e1e1e6; font-family: sans-serif; display: flex; justify-content: center; padding: 15px; }
-        .container { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 15px; }
-        
-        .header-card { background: #16181e; padding: 15px; border-radius: 12px; border: 1px solid #292d3e; text-align: center; }
-        .title { font-size: 18px; font-weight: bold; color: #fff; }
-        #status { font-size: 11px; margin-top: 4px; color: #ff5555; text-transform: uppercase; font-weight: bold; }
-        .online { color: #00ff88 !important; }
-
-        .score-board { display: flex; justify-content: space-around; margin-top: 10px; background: #0d0f12; padding: 8px; border-radius: 8px; }
-        .score-item { font-size: 13px; font-weight: bold; }
-        .green-text { color: #00ff88; }
-        .red-text { color: #ff5555; }
-
-        .ball { width: 75px; height: 75px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; border: 4px solid #ffffff22; margin: 0 auto; }
-        .red { background: linear-gradient(145deg, #e63946, #b71c1c); }
-        .black { background: linear-gradient(145deg, #2b2d42, #11111d); }
-        .green { background: linear-gradient(145deg, #2a9d8f, #1b4332); }
-
-        #alert-box { background: #221f10; border: 2px solid #ffd700; padding: 15px; border-radius: 12px; text-align: center; display: none; }
-        .pulse { animation: pulse-gold 1.5s infinite; }
-        @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.6); } 70% { box-shadow: 0 0 0 12px rgba(255, 215, 0, 0); } }
-
-        .section-title { font-size: 12px; color: #828a9e; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
-        .history { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 5px; }
-        .hist-item { min-width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; }
-
-        .strat-card { background: #0d0f12; padding: 10px; border-radius: 8px; border: 1px solid #292d3e; margin-bottom: 6px; text-align: left; }
-        .strat-card.top1 { border: 1px solid #00ff88; background: #0a2018; }
-        .strat-title { font-size: 12px; font-weight: bold; color: #fff; display: flex; justify-content: space-between; }
-        .strat-stats { font-size: 11px; color: #828a9e; margin-top: 4px; }
-
-        .racetrack-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; background: #0d0f12; padding: 8px; border-radius: 8px; border: 1px solid #292d3e; }
-        .race-cell { padding: 8px 0; text-align: center; font-size: 11px; font-weight: bold; border-radius: 4px; opacity: 0.25; transition: all 0.3s; }
-        .race-cell.active-target { opacity: 1 !important; transform: scale(1.1); border: 2px solid #ffd700; box-shadow: 0 0 8px #ffd700; z-index: 2; }
-        .race-cell.main-target { opacity: 1 !important; transform: scale(1.2); border: 2px solid #00ff88; box-shadow: 0 0 10px #00ff88; z-index: 3; }
-    </style>
-</head>
-<body>
-
-<div class="container">
-    <div class="header-card">
-        <div class="title">🎯 SNIPER ENGINE AUTO-SWITCH</div>
-        <div id="status">Aguardando Coletor...</div>
-        
-        <div class="score-board">
-            <span class="score-item green-text">GREENS: <span id="greens-cnt">0</span></span>
-            <span class="score-item red-text">REDS: <span id="reds-cnt">0</span></span>
-        </div>
-    </div>
-
-    <div class="header-card">
-        <div id="ball" class="ball" style="display:none">0</div>
-    </div>
-
-    <div id="alert-box" class="pulse">
-        <h3 style="color: #ffd700; font-size: 13px;" id="strat-active-title">🎯 ESTRATÉGIA ATIVA</h3>
-        <p id="msg-sniper" style="font-size: 14px; font-weight: bold; margin-top: 5px; color: #fff;"></p>
-    </div>
-
-    <div class="header-card">
-        <div class="section-title">Análise dos Últimos 100 Números (Ranking)</div>
-        <div id="ranking-container"></div>
-    </div>
-
-    <div class="header-card">
-        <div class="section-title">Últimos Resultados</div>
-        <div class="history" id="history"></div>
-    </div>
-
-    <div class="header-card">
-        <div class="section-title">Racetrack Alvos (+ 3 Vizinhos)</div>
-        <div class="racetrack-grid" id="racetrack"></div>
-    </div>
-</div>
-
-<script>
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const WS_URL = `${protocol}//${window.location.host}/ws`;
-    const socket = new WebSocket(WS_URL);
-    const redNumbers = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
-
-    const racetrackDiv = document.getElementById('racetrack');
-    for (let i = 0; i <= 36; i++) {
-        const cell = document.createElement('div');
-        cell.id = `race-${i}`;
-        cell.className = `race-cell ${getColorClass(i)}`;
-        cell.innerText = i;
-        racetrackDiv.appendChild(cell);
-    }
-
-    socket.onopen = () => {
-        const st = document.getElementById('status');
-        st.innerText = "MONITORANDO EM TEMPO REAL";
-        st.classList.add('online');
-    };
-
-    socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.ultimo_numero !== undefined) {
-            const ball = document.getElementById('ball');
-            ball.style.display = "flex";
-            ball.innerText = data.ultimo_numero;
-            ball.className = `ball ${getColorClass(data.ultimo_numero)}`;
-
-            if (data.placar) {
-                document.getElementById('greens-cnt').innerText = data.placar.greens;
-                document.getElementById('reds-cnt').innerText = data.placar.reds;
-            }
-
-            // Renderiza o Ranking de Estratégias em tempo real
-            const rankDiv = document.getElementById('ranking-container');
-            rankDiv.innerHTML = "";
-            if (data.ranking) {
-                data.ranking.forEach((st, idx) => {
-                    const card = document.createElement('div');
-                    card.className = `strat-card ${idx === 0 ? 'top1' : ''}`;
-                    card.innerHTML = `
-                        <div class="strat-title">
-                            <span>${idx === 0 ? '🔥 ' : ''}${st.nome}</span>
-                            <span style="color: ${st.assertividade > 50 ? '#00ff88' : '#ff5555'}">${st.assertividade}%</span>
-                        </div>
-                        <div class="strat-stats">
-                            Wins: ${st.wins} | Losses: ${st.losses} | Entradas: ${st.total}
-                        </div>
-                    `;
-                    rankDiv.appendChild(card);
-                });
-            }
-
-            document.querySelectorAll('.race-cell').forEach(c => {
-                c.classList.remove('active-target');
-                c.classList.remove('main-target');
-            });
-
-            const alertBox = document.getElementById('alert-box');
-            if (data.alerta) {
-                alertBox.style.display = "block";
-                document.getElementById('strat-active-title').innerText = `🎯 ESTRATÉGIA ATIVA: ${data.melhor_estratégia}`;
-                document.getElementById('msg-sniper').innerText = data.mensagem;
-                
-                data.sugestoes.forEach(num => {
-                    const targetCell = document.getElementById(`race-${num}`);
-                    if (targetCell) targetCell.classList.add('active-target');
-                });
-
-                if (data.alvos_principais) {
-                    data.alvos_principais.forEach(num => {
-                        const mainCell = document.getElementById(`race-${num}`);
-                        if (mainCell) mainCell.classList.add('main-target');
-                    });
-                }
-            } else {
-                alertBox.style.display = "none";
-            }
-
-            const histDiv = document.getElementById('history');
-            histDiv.innerHTML = "";
-            data.historico.forEach(num => {
-                const item = document.createElement('div');
-                item.className = `hist-item ${getColorClass(num)}`;
-                item.innerText = num;
-                histDiv.appendChild(item);
-            });
-        }
-    };
-
-    function getColorClass(num) {
-        if (num === 0) return 'green';
-        return redNumbers.includes(num) ? 'red' : 'black';
-    }
-</script>
-</body>
-</html>
-"""
+# (Aguardando o seu index.html customizado para substituição)
 
 # ==========================================
 # 5. ROTAS DE API
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    return HTML_CONTENT
+    try:
+        with open("templates/index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Arquivo index.html não encontrado na pasta templates/</h1>"
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -372,3 +194,33 @@ async def injetar_numero(numero: int):
         await manager.broadcast(dados_analise)
         return {"status": "sucesso", "dados": dados_analise}
     return {"status": "erro", "mensagem": "Número inválido"}
+
+@app.post("/injetar-lote")
+async def injetar_lote(payload: dict = Body(...)):
+    """
+    Injeta múltiplos números de uma só vez (ex: "15, 32, 0, 12, 5" ou "15 32 0 12")
+    """
+    raw_text = payload.get("numeros", "")
+    try:
+        cleaned_text = raw_text.replace(',', ' ').replace(';', ' ').replace('\n', ' ')
+        numeros = [int(n) for n in cleaned_text.split() if n.strip().isdigit()]
+        validos = [n for n in numeros if 0 <= n <= 36]
+        
+        # Limpa histórico antigo e reinicia placar para a nova análise dos 100 números
+        global historico_rodadas, placar_geral, ultimos_alvos_cobertura
+        historico_rodadas = []
+        placar_geral = {"greens": 0, "reds": 0}
+        ultimos_alvos_cobertura = set()
+        
+        # Processa do mais antigo para o mais recente
+        dados_finais = None
+        for num in validos:
+            dados_finais = processar_numero(num)
+            
+        if dados_finais:
+            await manager.broadcast(dados_finais)
+            return {"status": "sucesso", "total_processado": len(validos), "dados": dados_finais}
+            
+        return {"status": "erro", "mensagem": "Nenhum número válido encontrado na sequência."}
+    except Exception as e:
+        return {"status": "erro", "mensagem": str(e)}
