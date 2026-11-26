@@ -105,58 +105,38 @@ def avaliar_estratégia(nome_estratégia: str, matriz: Dict[int, List[int]], his
         "assertividade": taxa_win
     }
 
+def estatisticas(hist):
+    from collections import Counter
+    h = list(reversed(hist))
+    freq = {str(w): dict(Counter(h[-w:])) for w in (10,20,50,100)}
+    trans = Counter(zip(h,h[1:]))
+    return {"frequencias": freq, "terminais": dict(Counter(n%10 for n in h)),
+            "repeticoes": sum(a==b for a,b in zip(h,h[1:])),
+            "transicoes": [{"de":a,"para":b,"total":v} for (a,b),v in trans.most_common(10)],
+            "zonas": [{"centro":n,"total":sum(x in obter_vizinhos_racetrack(n,2) for x in h)} for n in RACETRACK_EUROPEIA],
+            "amostra":len(h)}
+
 def processar_numero(numero: int) -> dict:
-    global ultimos_alvos_cobertura
-    
-    # 1. Valida resultado da rodada anterior
-    resultado_rodada = "SEM_SINAL"
-    if ultimos_alvos_cobertura:
-        if numero in ultimos_alvos_cobertura:
-            placar_geral["greens"] += 1
-            resultado_rodada = "WIN"
-        else:
-            placar_geral["reds"] += 1
-            resultado_rodada = "RED"
-
     historico_rodadas.insert(0, numero)
-    if len(historico_rodadas) > 100:
-        historico_rodadas.pop()
+    del historico_rodadas[100:]
+    return {"tipo":"NOVA_RODADA", "ultimo_numero":numero,
+            "historico":historico_rodadas.copy(), "alerta":False,
+            "alvos_principais":[], "sugestoes":[], "ranking":[],
+            "placar":{"greens":0,"reds":0}, "estatisticas":estatisticas(historico_rodadas)}
 
-    # 2. Executa Backtest de todas as estratégias nos últimos 100 números
-    ranking_estratégias = []
-    for nome, matriz in ESTRATEGIAS.items():
-        res = avaliar_estratégia(nome, matriz, historico_rodadas)
-        ranking_estratégias.append(res)
-        
-    # Ordena para pegar a melhor estratégia no topo
-    ranking_estratégias.sort(key=lambda x: x["assertividade"], reverse=True)
-    melhor_estratégia = ranking_estratégias[0] if ranking_estratégias else None
-
-    # 3. Pega os alvos do novo número baseado na MELHOR estratégia ativa
-    alvos_principais = []
-    cobertura_total: Set[int] = set()
-    
-    if melhor_estratégia and melhor_estratégia["assertividade"] > 0:
-        matriz_ativa = ESTRATEGIAS[melhor_estratégia["nome"]]
-        alvos_principais = matriz_ativa.get(numero, [])
-        for alvo in alvos_principais:
-            cobertura_total.update(obter_vizinhos_racetrack(alvo, raio=3))
-
-    ultimos_alvos_cobertura = cobertura_total.copy()
-
-    return {
-        "tipo": "NOVA_RODADA",
-        "ultimo_numero": numero,
-        "resultado_rodada": resultado_rodada,
-        "historico": historico_rodadas,
-        "alerta": len(alvos_principais) > 0,
-        "alvos_principais": alvos_principais,
-        "sugestoes": list(cobertura_total),
-        "melhor_estratégia": melhor_estratégia["nome"] if melhor_estratégia else "NENHUMA",
-        "ranking": ranking_estratégias,
-        "mensagem": f"ENTRAR NOS ALVOS {alvos_principais} + 3 VIZINHOS" if alvos_principais else "AGUARDANDO GATILHO DA MELHOR ESTRATÉGIA",
-        "placar": placar_geral
-    }
+@app.post("/simular")
+async def simular(payload: dict = Body(...)):
+    # Cobertura fixa escolhida pelo usuário; não seleciona entradas futuras.
+    alvos = payload.get("alvos", [])
+    if not isinstance(alvos,list) or not alvos or any(type(n) is not int or not 0<=n<=36 for n in alvos):
+        return {"erro":"Informe números de 0 a 36"}
+    h = historico_rodadas.copy()
+    linhas=[]
+    for r in range(4):
+        c=set(x for n in alvos for x in obter_vizinhos_racetrack(n,r))
+        wins=sum(n in c for n in h)
+        linhas.append({"raio":r,"cobertura":len(c),"probabilidade":round(100*len(c)/37,2),"wins":wins,"reds":len(h)-wins,"liquido":36*wins-len(c)*len(h)})
+    return {"amostra":len(h),"simulacoes":linhas}
 
 # ==========================================
 # 4. DASHBOARD FRONTEND HTML (Injetado via App)

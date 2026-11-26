@@ -59,10 +59,10 @@
 <div class="container">
     <!-- CABEÇALHO E PLACAR -->
     <div class="header-card">
-        <div class="title">🎯 SNIPER ENGINE AUTO-SWITCH</div>
+        <div class="title">🎯 ROULETRIX PRO V23 • ESTATÍSTICAS</div>
         <div id="status">DESCONECTADO</div>
         
-        <div class="score-board">
+        <div class="score-board" style="display:none">
             <span class="score-item green-text">GREENS: <span id="greens-cnt">0</span></span>
             <span class="score-item red-text">REDS: <span id="reds-cnt">0</span></span>
         </div>
@@ -91,8 +91,8 @@
 
     <!-- RANKING DAS ESTRATÉGIAS COM BACKTEST -->
     <div class="header-card">
-        <div class="section-title">Ranking de Assertividade (Backtest 100 Rodadas)</div>
-        <div id="ranking-container"></div>
+        <div class="section-title">Estatísticas observadas</div>
+        <div id="ranking-container"></div><pre id="stats" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><p>Frequências históricas não preveem a próxima rodada.</p><div class="section-title">Simulação retrospectiva de cobertura fixa</div><input id="sim-alvos" placeholder="Ex.: 3,33" style="width:100%"><button onclick="simular()">Comparar coberturas</button><pre id="sim-out" style="white-space:pre-wrap"></pre>
     </div>
 
     <!-- HISTÓRICO DAS ÚLTIMAS RODADAS -->
@@ -103,7 +103,7 @@
 
     <!-- RACETRACK DE ALVOS (+ 3 VIZINHOS) -->
     <div class="header-card">
-        <div class="section-title">Racetrack Alvos (+ 3 Vizinhos)</div>
+        <div class="section-title">Números da roda</div>
         <div class="racetrack-grid" id="racetrack"></div>
     </div>
 </div>
@@ -139,6 +139,8 @@
 
     socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        if(data.estatisticas){const e=data.estatisticas; const fmt=o=>Object.entries(o).sort((a,b)=>b[1]-a[1]).map(([n,v])=>n+': '+v).join(' | '); document.getElementById('stats').textContent = 'Amostra: '+e.amostra+'\n'+Object.entries(e.frequencias).map(([w,f])=>'Últimas '+w+': '+fmt(f)).join('\n')+'\nTerminais: '+fmt(e.terminais)+'\nRepetições consecutivas: '+e.repeticoes+'\nTransições observadas: '+e.transicoes.map(t=>t.de+' → '+t.para+': '+t.total).join(' | ')+'\nSetores (2 vizinhos por lado): '+e.zonas.map(z=>z.centro+': '+z.total).join(' | '); }
+
         if (data.ultimo_numero !== undefined) {
             // Atualizar Bola Principal
             const ball = document.getElementById('ball');
@@ -247,6 +249,7 @@
     function limparInput() {
         document.getElementById('lote-input').value = "";
     }
+async function simular(){try{const alvos=document.getElementById('sim-alvos').value.trim().split(/[ ,;]+/).map(Number);const d=await (await fetch('/simular',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({alvos})})).json();document.getElementById('sim-out').textContent=d.erro||('Amostra: '+d.amostra+'\n'+d.simulacoes.map(x=>x.raio+' vizinhos/lado | '+x.cobertura+' números | chance teórica '+x.probabilidade+'% | acertos '+x.wins+' | erros '+x.reds+' | saldo simulado '+x.liquido+' unidades').join('\n'));}catch(e){document.getElementById('sim-out').textContent='Falha na simulação';}}
 </script>
 </body>
 </html>
