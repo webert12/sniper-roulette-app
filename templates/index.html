@@ -52,7 +52,7 @@
         .race-cell { padding: 8px 0; text-align: center; font-size: 11px; font-weight: bold; border-radius: 4px; opacity: 0.25; transition: all 0.3s; }
         .race-cell.active-target { opacity: 1 !important; transform: scale(1.1); border: 2px solid #ffd700; box-shadow: 0 0 8px #ffd700; z-index: 2; }
         .race-cell.main-target { opacity: 1 !important; transform: scale(1.2); border: 2px solid #00ff88; box-shadow: 0 0 10px #00ff88; z-index: 3; }
-    [hidden], #alert-box, .score-board { display:none !important; }
+    [hidden], #alert-box { display:none !important; }
  body {padding:6px;} .container {gap:6px;max-width:none;} .header-card {padding:8px;} .history {display:grid;grid-template-columns:repeat(auto-fit,minmax(30px,1fr));gap:4px;} .hist-item {min-width:0;height:30px;} summary {cursor:pointer;font-size:12px;}
 </style>
 </head>
@@ -64,14 +64,14 @@
         <div class="title">🎯 ROULETRIX PRO V26</div>
         <div id="status">DESCONECTADO</div>
         
-        <div class="score-board" style="display:none">
-            <span class="score-item green-text">GREENS: <span id="greens-cnt">0</span></span>
+        <div class="score-board">
+            <span class="score-item green-text">WINS: <span id="greens-cnt">0</span></span>
             <span class="score-item red-text">REDS: <span id="reds-cnt">0</span></span>
-        </div>
+        </div><p style="font-size:11px;margin-top:5px">Backtest das últimas 100 rodadas • soma por estratégia (não apostas reais)</p>
     </div>
 
     <!-- CAIXA DE ENTRADA MANUAL DOS 100 NÚMEROS -->
-    <details class="header-card"><summary>Importar histórico manualmente</summary>
+    <details class="header-card" hidden><summary>Importar histórico manualmente</summary>
         <div class="section-title">Injetar Histórico (Até 100 Números)</div>
         <textarea id="lote-input" placeholder="Cole aqui os números separados por espaço ou vírgula. Ex: 15, 32, 0, 12, 5, 22..."></textarea>
         <div class="btn-group">
@@ -92,9 +92,7 @@
     </div>
 
     <!-- RANKING DAS ESTRATÉGIAS COM BACKTEST -->
-    <div class="header-card" hidden>
-        <div class="section-title">Estatísticas observadas</div>
-        <div id="ranking-container"></div><pre id="stats" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><p>Frequências históricas não preveem a próxima rodada.</p><div class="section-title">Simulação retrospectiva de cobertura fixa</div><input id="sim-alvos" placeholder="Ex.: 3,33" style="width:100%"><button onclick="simular()">Comparar coberturas</button><pre id="sim-out" style="white-space:pre-wrap"></pre>
+    <div class="header-card"><div class="section-title">Estratégias • acertos retrospectivos</div><div id="ranking-container"></div></div><div class="header-card" hidden><pre id="stats" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><p>Frequências históricas não preveem a próxima rodada.</p><div class="section-title">Simulação retrospectiva de cobertura fixa</div><input id="sim-alvos" placeholder="Ex.: 3,33" style="width:100%"><button onclick="simular()">Comparar coberturas</button><pre id="sim-out" style="white-space:pre-wrap"></pre>
     </div>
 
     <!-- HISTÓRICO DAS ÚLTIMAS RODADAS -->
@@ -144,7 +142,7 @@
         if(data.estatisticas){const e=data.estatisticas; const fmt=o=>Object.entries(o).sort((a,b)=>b[1]-a[1]).map(([n,v])=>n+': '+v).join(' | '); document.getElementById('stats').textContent = 'Amostra: '+e.amostra+'\n'+Object.entries(e.frequencias).map(([w,f])=>'Últimas '+w+': '+fmt(f)).join('\n')+'\nTerminais: '+fmt(e.terminais)+'\nRepetições consecutivas: '+e.repeticoes+'\nTransições observadas: '+e.transicoes.map(t=>t.de+' → '+t.para+': '+t.total).join(' | ')+'\nSetores (2 vizinhos por lado): '+e.zonas.map(z=>z.centro+': '+z.total).join(' | '); }
 
         if (Array.isArray(data.historico) && data.historico.length && data.ultimo_numero === undefined) data.ultimo_numero = data.historico[0];
-        if (data.ultimo_numero !== undefined) {
+        if (data.ultimo_numero !== undefined && data.ultimo_numero !== null) {
             // Atualizar Bola Principal
             const ball = document.getElementById('ball');
             ball.style.display = "flex";
@@ -167,7 +165,7 @@
                     card.innerHTML = `
                         <div class="strat-title">
                             <span>${idx === 0 ? '🔥 ' : ''}${st.nome}</span>
-                            <span style="color: ${st.assertividade > 50 ? '#00ff88' : '#ff5555'}">${st.assertividade}%</span>
+                            <span style="color: #e1e1e6">${st.total ? st.assertividade+'%' : 'Sem amostra'}</span>
                         </div>
                         <div class="strat-stats">
                             Wins: ${st.wins} | Losses: ${st.losses} | Entradas: ${st.total}

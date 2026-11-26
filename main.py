@@ -116,13 +116,18 @@ def estatisticas(hist):
             "zonas": [{"centro":n,"total":sum(x in obter_vizinhos_racetrack(n,2) for x in h)} for n in RACETRACK_EUROPEIA],
             "amostra":len(h)}
 
+def painel():
+    h = historico_rodadas.copy()
+    ranking = [avaliar_estratégia(nome, matriz, h) for nome, matriz in ESTRATEGIAS.items()]
+    return {"tipo":"NOVA_RODADA", "ultimo_numero":h[0] if h else None,
+            "historico":h, "alerta":False, "ranking":ranking,
+            "placar":{"greens":sum(r["wins"] for r in ranking),"reds":sum(r["losses"] for r in ranking)},
+            "estatisticas":estatisticas(h)}
+
 def processar_numero(numero: int) -> dict:
     historico_rodadas.insert(0, numero)
     del historico_rodadas[100:]
-    return {"tipo":"NOVA_RODADA", "ultimo_numero":numero,
-            "historico":historico_rodadas.copy(), "alerta":False,
-            "alvos_principais":[], "sugestoes":[], "ranking":[],
-            "placar":{"greens":0,"reds":0}, "estatisticas":estatisticas(historico_rodadas)}
+    return painel()
 
 @app.post("/simular")
 async def simular(payload: dict = Body(...)):
@@ -157,10 +162,7 @@ async def home():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    await websocket.send_json({
-        "tipo": "INIT",
-        "historico": historico_rodadas
-    })
+    await websocket.send_json(painel())
     try:
         while True:
             await websocket.receive_text()
