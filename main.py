@@ -116,6 +116,45 @@ def estatisticas(hist):
             "zonas": [{"centro":n,"total":sum(x in obter_vizinhos_racetrack(n,2) for x in h)} for n in RACETRACK_EUROPEIA],
             "amostra":len(h)}
 
+def auditoria_confluencias(hist):
+    """Auditoria cronológica descritiva, sem recomendar apostas futuras."""
+    from collections import Counter
+    from random import Random
+    from functools import lru_cache
+    h = list(reversed(hist[:100]))
+    def medir(seq):
+        grupos = {k:[0,0] for k in range(5)}
+        for i in range(20,len(seq)):
+            anterior=seq[:i]; recente=anterior[-20:]; n=anterior[-1]
+            f=Counter(recente); t=Counter(x%10 for x in recente)
+            zona=set(obter_vizinhos_racetrack(n,2))
+            trans=[b for a,b in zip(anterior[:-1],anterior[1:]) if a==n]
+            c=sum((f[n]>=2,t[n%10]>=3,sum(x in zona for x in recente)>=5,trans.count(n)>=1))
+            grupos[c][0]+=1
+            grupos[c][1]+=int(seq[i]==n)
+        return grupos
+    observado=medir(h)
+    esperado=_referencia_aleatoria(len(h))
+    return {"amostra":len(h),"rodadas_simuladas":esperado[0],"grupos":[{"confluencias":k,"total":v[0],"repeticoes":v[1],"taxa":round(100*v[1]/v[0],2) if v[0] else None,"taxa_aleatoria":esperado[1][k]} for k,v in observado.items()],"chance_teorica":round(100/37,2)}
+
+from functools import lru_cache
+@lru_cache(maxsize=101)
+def _referencia_aleatoria(tamanho):
+    from random import Random
+    from collections import Counter
+    rng=Random(2601); grupos=[[0,0] for _ in range(5)]
+    for _ in range(200):
+        seq=[rng.randrange(37) for _ in range(tamanho)]
+        for i in range(20,tamanho):
+            a=seq[:i]; r=a[-20:]; n=a[-1]; z=set(obter_vizinhos_racetrack(n,2))
+            c=sum((r.count(n)>=2,sum(x%10==n%10 for x in r)>=3,sum(x in z for x in r)>=5,any(x==n and y==n for x,y in zip(a,a[1:]))))
+            grupos[c][0]+=1; grupos[c][1]+=int(seq[i]==n)
+    return (200*max(0,tamanho-20),[round(100*b/a,2) if a else None for a,b in grupos])
+
+@app.get("/auditoria-confluencias")
+async def auditoria():
+    return auditoria_confluencias(historico_rodadas.copy())
+
 def painel():
     h = historico_rodadas.copy()
     ranking = [avaliar_estratégia(nome, matriz, h) for nome, matriz in ESTRATEGIAS.items()]
