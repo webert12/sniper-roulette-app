@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sniper Roulette Engine - Auto Dynamic Strategy</title>
+    <title>ROULETRIX PRO V26</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background-color: #0d0f12; color: #e1e1e6; font-family: sans-serif; display: flex; justify-content: center; padding: 15px; }
@@ -52,14 +52,16 @@
         .race-cell { padding: 8px 0; text-align: center; font-size: 11px; font-weight: bold; border-radius: 4px; opacity: 0.25; transition: all 0.3s; }
         .race-cell.active-target { opacity: 1 !important; transform: scale(1.1); border: 2px solid #ffd700; box-shadow: 0 0 8px #ffd700; z-index: 2; }
         .race-cell.main-target { opacity: 1 !important; transform: scale(1.2); border: 2px solid #00ff88; box-shadow: 0 0 10px #00ff88; z-index: 3; }
-    </style>
+    [hidden], #alert-box, .score-board { display:none !important; }
+ body {padding:6px;} .container {gap:6px;max-width:none;} .header-card {padding:8px;} .history {display:grid;grid-template-columns:repeat(auto-fit,minmax(30px,1fr));gap:4px;} .hist-item {min-width:0;height:30px;} summary {cursor:pointer;font-size:12px;}
+</style>
 </head>
 <body>
 
 <div class="container">
     <!-- CABEÇALHO E PLACAR -->
     <div class="header-card">
-        <div class="title">🎯 ROULETRIX PRO V23 • ESTATÍSTICAS</div>
+        <div class="title">🎯 ROULETRIX PRO V26</div>
         <div id="status">DESCONECTADO</div>
         
         <div class="score-board" style="display:none">
@@ -69,14 +71,14 @@
     </div>
 
     <!-- CAIXA DE ENTRADA MANUAL DOS 100 NÚMEROS -->
-    <div class="header-card">
+    <details class="header-card"><summary>Importar histórico manualmente</summary>
         <div class="section-title">Injetar Histórico (Até 100 Números)</div>
         <textarea id="lote-input" placeholder="Cole aqui os números separados por espaço ou vírgula. Ex: 15, 32, 0, 12, 5, 22..."></textarea>
         <div class="btn-group">
             <button class="btn-submit" onclick="enviarLote()">ANALISAR HISTÓRICO</button>
             <button class="btn-clear" onclick="limparInput()">LIMPAR</button>
         </div>
-    </div>
+    </details>
 
     <!-- ÚLTIMO NÚMERO SAÍDO -->
     <div class="header-card">
@@ -90,7 +92,7 @@
     </div>
 
     <!-- RANKING DAS ESTRATÉGIAS COM BACKTEST -->
-    <div class="header-card">
+    <div class="header-card" hidden>
         <div class="section-title">Estatísticas observadas</div>
         <div id="ranking-container"></div><pre id="stats" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><p>Frequências históricas não preveem a próxima rodada.</p><div class="section-title">Simulação retrospectiva de cobertura fixa</div><input id="sim-alvos" placeholder="Ex.: 3,33" style="width:100%"><button onclick="simular()">Comparar coberturas</button><pre id="sim-out" style="white-space:pre-wrap"></pre>
     </div>
@@ -102,7 +104,7 @@
     </div>
 
     <!-- RACETRACK DE ALVOS (+ 3 VIZINHOS) -->
-    <div class="header-card">
+    <div class="header-card" hidden>
         <div class="section-title">Números da roda</div>
         <div class="racetrack-grid" id="racetrack"></div>
     </div>
@@ -141,6 +143,7 @@
         const data = JSON.parse(event.data);
         if(data.estatisticas){const e=data.estatisticas; const fmt=o=>Object.entries(o).sort((a,b)=>b[1]-a[1]).map(([n,v])=>n+': '+v).join(' | '); document.getElementById('stats').textContent = 'Amostra: '+e.amostra+'\n'+Object.entries(e.frequencias).map(([w,f])=>'Últimas '+w+': '+fmt(f)).join('\n')+'\nTerminais: '+fmt(e.terminais)+'\nRepetições consecutivas: '+e.repeticoes+'\nTransições observadas: '+e.transicoes.map(t=>t.de+' → '+t.para+': '+t.total).join(' | ')+'\nSetores (2 vizinhos por lado): '+e.zonas.map(z=>z.centro+': '+z.total).join(' | '); }
 
+        if (Array.isArray(data.historico) && data.historico.length && data.ultimo_numero === undefined) data.ultimo_numero = data.historico[0];
         if (data.ultimo_numero !== undefined) {
             // Atualizar Bola Principal
             const ball = document.getElementById('ball');
@@ -208,7 +211,7 @@
             const histDiv = document.getElementById('history');
             histDiv.innerHTML = "";
             if (data.historico) {
-                data.historico.forEach(num => {
+                data.historico.slice(0,100).forEach(num => {
                     const item = document.createElement('div');
                     item.className = `hist-item ${getColorClass(num)}`;
                     item.innerText = num;
