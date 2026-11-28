@@ -3,6 +3,8 @@ from typing import List, Dict, Set
 from collections import Counter
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import HTMLResponse
+from math import sqrt, log
+from datetime import datetime, timezone
 
 app = FastAPI(title="Sniper Roulette Engine - Auto Dynamic Strategy")
 
@@ -224,7 +226,7 @@ def painel():
             "alvos_principais":(ultimo_alerta or {}).get("alvos_principais", []),
             "modo":"OPORTUNIDADE ESTATISTICA" if ultimo_alerta else "ANALISANDO",
             "placar":{"greens":sum(r["wins"] for r in ranking),"reds":sum(r["losses"] for r in ranking)},
-            "estatisticas":estatisticas(h)}
+            "estatisticas":estatisticas(h),"auditoria_v28": {"versao_motor":"V28","amostra":len(h)}}
 
 def processar_numero(numero: int, emitir_alerta: bool = True) -> dict:
     global ultimo_alerta, rodadas_desde_alerta
@@ -239,6 +241,59 @@ def processar_numero(numero: int, emitir_alerta: bool = True) -> dict:
             ultimo_alerta = candidato
             rodadas_desde_alerta = 0
     return painel()
+
+
+# V28: auditoria cronologica sem selecao retrospectiva de sinais.
+def intervalo_wilson(acertos, total, z=1.96):
+    if not total:
+        return [None, None]
+    p = acertos / total
+    den = 1 + z*z/total
+    centro = (p + z*z/(2*total))/den
+    margem = z*sqrt(p*(1-p)/total + z*z/(4*total*total))/den
+    return [round(100*(centro-margem),2), round(100*(centro+margem),2)]
+
+def auditar_estrategias(hist, minimo_treino=30):
+    # O historico do servidor esta do mais novo para o mais antigo.
+    cron = list(reversed(hist[:100]))
+    relatorio=[]
+    for nome, matriz in ESTRATEGIAS.items():
+        for raio in (1,2,3):
+            treino=[]; teste=[]
+            for i in range(len(cron)-1):
+                alvos=matriz.get(cron[i], [])
+                if not alvos:
+                    continue
+                cobertura=set(n for a in alvos for n in obter_vizinhos_racetrack(a,raio))
+                if not cobertura:
+                    continue
+                evento={'acerto':int(cron[i+1] in cobertura),'cobertura':len(cobertura),'custo':len(cobertura),
+                        'retorno':36*int(cron[i+1] in cobertura)-len(cobertura)}
+                (treino if i+1<minimo_treino else teste).append(evento)
+            def resumo(eventos):
+                n=len(eventos); wins=sum(e['acerto'] for e in eventos)
+                custo=sum(e['custo'] for e in eventos)
+                esperado=sum(e['cobertura']/37 for e in eventos)
+                retorno=sum(e['retorno'] for e in eventos)
+                return {'amostra':n,'wins':wins,'reds':n-wins,
+                        'taxa_observada':round(100*wins/n,2) if n else None,
+                        'taxa_esperada_ao_acaso':round(100*esperado/n,2) if n else None,
+                        'intervalo_95_wilson':intervalo_wilson(wins,n),
+                        'saldo_unidades':retorno,'unidades_apostadas':custo,
+                        'roi_percentual':round(100*retorno/custo,2) if custo else None}
+            relatorio.append({'estrategia':nome,'vizinhos':raio,'treino':resumo(treino),'teste_fora_da_amostra':resumo(teste)})
+    return {'versao_motor':'V28','amostra_rodadas':len(cron),'corte_treino':min(minimo_treino,len(cron)),
+            'metodologia':'Treino: primeiras 30 rodadas cronologicas; teste: rodadas seguintes, sem ajustar regras aos resultados de teste.',
+            'aviso':'Amostras pequenas, multiplas comparacoes e selecao de estrategias podem produzir falsos positivos. Resultados historicos nao preveem proximos giros.',
+            'estrategias':relatorio}
+
+@app.get('/auditoria-v28')
+async def auditoria_v28():
+    return auditar_estrategias(historico_rodadas.copy())
+
+@app.get('/saude-v28')
+async def saude_v28():
+    return {'motor':'V28','historico':len(historico_rodadas),'horario_utc':datetime.now(timezone.utc).isoformat()}
 
 @app.post("/simular")
 async def simular(payload: dict = Body(...)):
