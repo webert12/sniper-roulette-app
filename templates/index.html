@@ -87,7 +87,7 @@
 
     <!-- BOX DE ALERTA DO SINAL -->
     <div id="alert-box" class="pulse">
-        <h3 style="color: #ffd700; font-size: 13px;" id="strat-active-title">🎯 ESTRATÉGIA ATIVA</h3>
+        <h3 style="color: #ffd700; font-size: 13px;" id="strat-active-title">🔎 OPORTUNIDADE ESTATÍSTICA</h3>
         <p id="msg-sniper" style="font-size: 14px; font-weight: bold; margin-top: 5px; color: #fff;"></p>
     </div>
 
@@ -185,7 +185,7 @@
             const alertBox = document.getElementById('alert-box');
             if (data.alerta) {
                 alertBox.style.display = "block";
-                document.getElementById('strat-active-title').innerText = `🎯 ESTRATÉGIA ATIVA: ${data.melhor_estratégia}`;
+                document.getElementById('strat-active-title').innerText = `🔎 OPORTUNIDADE ESTATÍSTICA: ${data.melhor_estratégia}`;
                 document.getElementById('msg-sniper').innerText = data.mensagem;
                 
                 if (data.sugestoes) {

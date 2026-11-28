@@ -1,5 +1,6 @@
 import asyncio
 from typing import List, Dict, Set
+from collections import Counter
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import HTMLResponse
 
@@ -51,6 +52,8 @@ ESTRATEGIAS: Dict[str, Dict[int, List[int]]] = {
 historico_rodadas: List[int] = []
 placar_geral = {"greens": 0, "reds": 0}
 ultimos_alvos_cobertura: Set[int] = set()
+ultimo_alerta = None
+rodadas_desde_alerta = 999
 
 class ConnectionManager:
     def __init__(self):
@@ -155,17 +158,86 @@ def _referencia_aleatoria(tamanho):
 async def auditoria():
     return auditoria_confluencias(historico_rodadas.copy())
 
+def avaliar_oportunidade(h):
+    """Alerta DESCRITIVO, nao uma previsao de roleta.
+    Usa somente resultados anteriores ao proximo giro, com controle de cobertura.
+    """
+    if len(h) < 60:
+        return None
+    atual = h[0]
+    cron = list(reversed(h[:100]))
+    recente = h[:30]
+    frequencias = Counter(recente)
+    candidatos = []
+    for nome, matriz in ESTRATEGIAS.items():
+        bases = matriz.get(atual, [])
+        if not bases:
+            continue
+        # A cobertura deve ser considerada: cobrir mais numeros aumenta acertos por acaso.
+        for raio in (1, 2, 3):
+            cobertura = set(x for base in bases for x in obter_vizinhos_racetrack(base, raio))
+            if not cobertura or len(cobertura) > 18:
+                continue
+            # Historico de transicoes para este mesmo gatilho, somente pares completos.
+            pares = [(cron[i], cron[i+1]) for i in range(len(cron)-1)]
+            casos = [b for a,b in pares if a == atual]
+            if len(casos) < 3:
+                continue
+            acertos = sum(x in cobertura for x in casos)
+            taxa = acertos / len(casos)
+            referencia = len(cobertura) / 37
+            freq_recente = sum(x in cobertura for x in recente) / len(recente)
+            repeticao = sum(a == b for a,b in pares[-30:])
+            criterios = [
+                taxa >= referencia + 0.15,
+                freq_recente >= referencia + 0.10,
+                frequencias[atual] >= 2,
+                repeticao >= 1,
+            ]
+            if sum(criterios) < 3:
+                continue
+            candidatos.append((sum(criterios), taxa-referencia, -len(cobertura), nome, bases, raio, cobertura, len(casos), acertos, referencia))
+    if not candidatos:
+        return None
+    candidatos.sort(reverse=True)
+    score, diferenca, _, nome, bases, raio, cobertura, casos, acertos, referencia = candidatos[0]
+    return {
+        "melhor_estratégia": nome,
+        "alvos_principais": bases,
+        "sugestoes": sorted(cobertura),
+        "mensagem": (f"OBSERVACAO ESTATISTICA: {', '.join(map(str,bases))} | "
+                     f"{raio} vizinho(s) | {len(cobertura)}/37 numeros cobertos | "
+                     f"historico do gatilho {acertos}/{casos} | "
+                     f"cobertura teorica {referencia*100:.1f}%. "
+                     "Nao e previsao nem garantia de acerto."),
+        "confluencias": score,
+    }
+
 def painel():
     h = historico_rodadas.copy()
     ranking = [avaliar_estratégia(nome, matriz, h) for nome, matriz in ESTRATEGIAS.items()]
     return {"tipo":"NOVA_RODADA", "ultimo_numero":h[0] if h else None,
-            "historico":h, "alerta":False, "ranking":ranking,
+            "historico":h, "alerta":bool(ultimo_alerta), "ranking":ranking,
+            "melhor_estratégia":(ultimo_alerta or {}).get("melhor_estratégia"),
+            "mensagem":(ultimo_alerta or {}).get("mensagem"),
+            "sugestoes":(ultimo_alerta or {}).get("sugestoes", []),
+            "alvos_principais":(ultimo_alerta or {}).get("alvos_principais", []),
+            "modo":"OPORTUNIDADE ESTATISTICA" if ultimo_alerta else "ANALISANDO",
             "placar":{"greens":sum(r["wins"] for r in ranking),"reds":sum(r["losses"] for r in ranking)},
             "estatisticas":estatisticas(h)}
 
-def processar_numero(numero: int) -> dict:
+def processar_numero(numero: int, emitir_alerta: bool = True) -> dict:
+    global ultimo_alerta, rodadas_desde_alerta
     historico_rodadas.insert(0, numero)
     del historico_rodadas[100:]
+    rodadas_desde_alerta += 1
+    ultimo_alerta = None
+    # Sem sinal no carregamento de historico; somente novas rodadas.
+    if emitir_alerta and rodadas_desde_alerta >= 3:
+        candidato = avaliar_oportunidade(historico_rodadas)
+        if candidato:
+            ultimo_alerta = candidato
+            rodadas_desde_alerta = 0
     return painel()
 
 @app.post("/simular")
@@ -228,15 +300,17 @@ async def injetar_lote(payload: dict = Body(...)):
         validos = [n for n in numeros if 0 <= n <= 36]
         
         # Limpa histórico antigo e reinicia placar para a nova análise dos 100 números
-        global historico_rodadas, placar_geral, ultimos_alvos_cobertura
+        global historico_rodadas, placar_geral, ultimos_alvos_cobertura, ultimo_alerta, rodadas_desde_alerta
         historico_rodadas = []
         placar_geral = {"greens": 0, "reds": 0}
         ultimos_alvos_cobertura = set()
+        ultimo_alerta = None
+        rodadas_desde_alerta = 999
         
         # Processa do mais antigo para o mais recente
         dados_finais = None
         for num in validos:
-            dados_finais = processar_numero(num)
+            dados_finais = processar_numero(num, emitir_alerta=False)
             
         if dados_finais:
             await manager.broadcast(dados_finais)
